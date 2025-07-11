@@ -20,7 +20,8 @@ class ViewController: UIViewController {
     @IBOutlet weak var restartButton: UIButton!
     
     // MARK: - Properties
-    private let triviaGame = TriviaGame()
+    private var triviaGame: TriviaGame?
+    private let triviaService = TriviaQuestionService()
     private var answerButtons: [UIButton] = []
     
     // MARK: - Lifecycle
@@ -28,7 +29,7 @@ class ViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         setupAnswerButtons()
-        displayCurrentQuestion()
+        fetchTriviaQuestions()
     }
     
     // MARK: - Setup Methods
@@ -63,9 +64,33 @@ class ViewController: UIViewController {
         }
     }
     
-    // MARK: - Display Methods
+    // MARK: - Fetching & Display Methods
+    private func fetchTriviaQuestions() {
+        // Optionally, show a loading state here
+        questionLabel.text = "Loading..."
+        answerButtons.forEach { $0.isHidden = true }
+        progressLabel.text = ""
+        scoreLabel.isHidden = true
+        restartButton.isHidden = true
+        
+        triviaService.fetchQuestions(amount: 5) { [weak self] questions in
+            guard let self = self, let questions = questions, !questions.isEmpty else {
+                DispatchQueue.main.async {
+                    self?.questionLabel.text = "Failed to load questions. Please try again."
+                    self?.restartButton.isHidden = false
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                self.triviaGame = TriviaGame(questions: questions)
+                self.answerButtons.forEach { $0.isHidden = false }
+                self.displayCurrentQuestion()
+            }
+        }
+    }
+    
     private func displayCurrentQuestion() {
-        guard let question = triviaGame.currentQuestion else {
+        guard let game = triviaGame, let question = game.currentQuestion else {
             showGameComplete()
             return
         }
@@ -74,19 +99,25 @@ class ViewController: UIViewController {
         questionLabel.text = question.question
         
         for (index, button) in answerButtons.enumerated() {
-            button.setTitle(question.answers[index], for: .normal)
-            button.isEnabled = true
-            button.backgroundColor = UIColor.systemGray6
+            if index < question.answers.count {
+                button.setTitle(question.answers[index], for: .normal)
+                button.isHidden = false
+                button.isEnabled = true
+                button.backgroundColor = UIColor.systemGray6
+            } else {
+                button.isHidden = true
+            }
         }
         
         // Update progress
-        progressLabel.text = "Question \(triviaGame.currentQuestionNumber) of \(triviaGame.totalQuestions)"
+        progressLabel.text = "Question \(game.currentQuestionNumber) of \(game.totalQuestions)"
     }
     
     private func showGameComplete() {
+        guard let game = triviaGame else { return }
         questionLabel.text = "Quiz Complete!"
         progressLabel.text = "Final Score:"
-        scoreLabel.text = "\(triviaGame.currentScore) out of \(triviaGame.totalQuestions)"
+        scoreLabel.text = "\(game.currentScore) out of \(game.totalQuestions)"
         scoreLabel.isHidden = false
         restartButton.isHidden = false
         
@@ -103,8 +134,8 @@ class ViewController: UIViewController {
         selectedButton.backgroundColor = isCorrect ? UIColor.systemGreen : UIColor.systemRed
         
         // Show correct answer if wrong was selected
-        if !isCorrect, let correctQuestion = triviaGame.currentQuestion {
-            let correctButton = answerButtons[correctQuestion.correctAnswerIndex]
+        if let game = triviaGame, !isCorrect, let currentQuestion = game.currentQuestion {
+            let correctButton = answerButtons[currentQuestion.correctAnswerIndex]
             correctButton.backgroundColor = UIColor.systemGreen
         }
         
@@ -116,16 +147,13 @@ class ViewController: UIViewController {
     
     // MARK: - IBActions
     @IBAction func answerButtonTapped(_ sender: UIButton) {
+        guard let game = triviaGame else { return }
         let selectedIndex = sender.tag
-        let isCorrect = triviaGame.answerCurrentQuestion(selectedIndex: selectedIndex)
+        let isCorrect = game.answerCurrentQuestion(selectedIndex: selectedIndex)
         highlightAnswer(selectedIndex: selectedIndex, isCorrect: isCorrect)
     }
     
     @IBAction func restartButtonTapped(_ sender: UIButton) {
-        triviaGame.resetGame()
-        restartButton.isHidden = true
-        scoreLabel.isHidden = true
-        answerButtons.forEach { $0.isHidden = false }
-        displayCurrentQuestion()
+        fetchTriviaQuestions()
     }
 }
